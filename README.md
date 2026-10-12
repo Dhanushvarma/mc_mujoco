@@ -103,6 +103,70 @@ To load [MuJoCo plugins](https://mujoco.readthedocs.io/en/latest/programming/ext
 PluginPaths: ["<path-to-plugins>"]
 ```
 
+They can also be given in the mc_rtc configuration (e.g. the `--mc-config` file), under `MuJoCo`. An entry is a folder
+of plugin libraries or one library file, and a relative path is relative to the working directory:
+
+```yaml
+MuJoCo:
+  PluginPaths: ["<path-to-plugins>", "<path-to/libmy_plugin.so>"]
+```
+
+The same `MuJoCo` section can hold `objects`, with the same entries as `mc_mujoco.yaml`. They are added to those of
+`mc_mujoco.yaml`, and one with the same name as an object there replaces it. An object whose root body is a mocap body
+is moved by `{object}::SetPosW` like a free object.
+
+mc_rtc merges the `MuJoCo` section from all its configuration files before `mc_mujoco` reads it: the installed
+`etc/mc_rtc.yaml`, the files in `MC_RTC_CONTROLLER_CONFIG`, `~/.config/mc_rtc/mc_rtc.yaml` (unless
+`LoadUserConfiguration: false`), then the `--mc-config` file. A later `PluginPaths` list replaces an earlier one, while
+`objects` are merged key by key, inside each object too.
+
+List each plugin library once. Two different copies of one plugin, for example an installed folder in `mc_mujoco.yaml`
+and a build-tree library in the run configuration, make MuJoCo stop the process when the second one registers. The same
+file listed twice is harmless.
+
+#### Plugin sensors
+
+Declare a plugin sensor inline in the `<sensor>` section of the robot's MJCF, with its configuration as `<config>`
+children:
+
+```xml
+<extension>
+  <plugin plugin="my_plugin"/>
+</extension>
+<sensor>
+  <plugin name="tof" plugin="my_plugin" objtype="site" objname="tof_site">
+    <config key="resolution" value="64"/>
+  </plugin>
+</sensor>
+```
+
+When the models are merged, only the attributes of `<extension><plugin>` are kept, so a named `<instance>` declared
+there is dropped, and a sensor's `instance=` attribute is not prefixed.
+
+The data of every MuJoCo plugin sensor attached to a robot is copied to the controller's datastore after each
+simulation step, as a `std::vector<double>` named `{robot}::{sensor}`, where `{sensor}` is the sensor's name in the
+robot's MJCF. The entry appears after the first simulation step, at start and after a reset. The state of the sensor's
+plugin instance can be read and written with the `{robot}::{sensor}::GetPluginState` and
+`{robot}::{sensor}::SetPluginState` callbacks below, for example to send the plugin commands. The datastore checks the
+call's types, so use these exact ones:
+
+```cpp
+auto & ds = controller.datastore();
+std::vector<double> state;
+ds.call<bool, std::vector<double> &>("jvrc1::tof::GetPluginState", state);
+ds.call<bool, const std::vector<double> &>("jvrc1::tof::SetPluginState", state);
+```
+
+- The state belongs to the plugin instance: two sensors that share one instance read and write the same state.
+- A sensor named like a callback of its robot (e.g. `SetPosW`) makes the datastore throw.
+- A reset of the simulation runs `mj_resetData`, which calls each plugin's reset but leaves `plugin_state` as it was (a
+  new `mjData` also starts with whatever was in memory there). A plugin that takes commands through its state should
+  clear it in its reset, and the controller sends its commands again after a reset.
+- The callbacks are made again after the controller's `reset()` and its plugins' `reset()` have run: use them in
+  `run()`, a plugin's `before()` or an FSM state, or check `ds.has()` first.
+- The callbacks lock the simulation mutex, so do not call them from code that already holds it (the rendering thread).
+- A plugin instance without state gets no callbacks, and a plugin sensor without a name is not published.
+
 ---
 
 #### GUI: Mouse Interaction
@@ -120,6 +184,8 @@ The following callbacks are available for the controller when running inside `mc
 | `{robot}::SetPDGainsByName(const std::string & jn, double p, double d)`             | Set the PD gains for a given joint `jn` in `robot`                                                                 |
 | `{robot}::GetPDGains(std::vector<double> & p, std::vector<double> & d)`             | Get the current PD gains for `robot` actuation                                                                     |
 | `{robot}::GetPDGainsByName(const std::string & jn, double & p, double & d)`         | Get the current PD gains for a given joint `jn` in `robot`                                                         |
+| `{robot}::{sensor}::SetPluginState(const std::vector<double> & state)`             | Write the state of a plugin sensor's plugin instance; `state` must have the instance's state size                   |
+| `{robot}::{sensor}::GetPluginState(std::vector<double> & state)`                    | Read the state of a plugin sensor's plugin instance                                                                 |
 
 ## Citation
 
