@@ -480,6 +480,18 @@ void MjSimImpl::setPosW(const T & robot, const sva::PTransformd & pos)
     mju_zero3(&data->qvel[robot.root_qvel_idx]);
     mju_zero3(&data->qvel[robot.root_qvel_idx + 3]);
   }
+  else if(robot.root_body_id != -1 && model->body_mocapid[robot.root_body_id] != -1)
+  {
+    // MuJoCo poses mocap bodies from mjData, not from body_pos / body_quat
+    const int mocap = model->body_mocapid[robot.root_body_id];
+    data->mocap_pos[3 * mocap + 0] = t.x();
+    data->mocap_pos[3 * mocap + 1] = t.y();
+    data->mocap_pos[3 * mocap + 2] = t.z();
+    data->mocap_quat[4 * mocap + 0] = q.w();
+    data->mocap_quat[4 * mocap + 1] = q.x();
+    data->mocap_quat[4 * mocap + 2] = q.y();
+    data->mocap_quat[4 * mocap + 3] = q.z();
+  }
   else if(robot.root_body_id != -1)
   {
     model->body_pos[3 * robot.root_body_id + 0] = t.x();
@@ -509,6 +521,17 @@ sva::PTransformd MjSimImpl::getObjectPosW(const std::string & object) const
     q.x() = data->qpos[o.root_qpos_idx + 4];
     q.y() = data->qpos[o.root_qpos_idx + 5];
     q.z() = data->qpos[o.root_qpos_idx + 6];
+    return {q.inverse(), t};
+  }
+  if(o.root_body_id != -1 && model->body_mocapid[o.root_body_id] != -1)
+  {
+    const int mocap = model->body_mocapid[o.root_body_id];
+    Eigen::Vector3d t = Eigen::Map<Eigen::Vector3d>(&data->mocap_pos[3 * mocap]);
+    Eigen::Quaterniond q;
+    q.w() = data->mocap_quat[4 * mocap + 0];
+    q.x() = data->mocap_quat[4 * mocap + 1];
+    q.y() = data->mocap_quat[4 * mocap + 2];
+    q.z() = data->mocap_quat[4 * mocap + 3];
     return {q.inverse(), t};
   }
   if(o.root_body_id != -1)
