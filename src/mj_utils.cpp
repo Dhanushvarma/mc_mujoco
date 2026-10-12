@@ -159,7 +159,11 @@ void uiEvent(mjuiState * state)
   if(state->type == mjEVENT_SCROLL && state->mouserect == 0 && mj_sim->model)
   {
     // emulate vertical mouse motion = 5% of window height
+#if mjVERSION_HEADER < 3011000
     mjv_moveCamera(mj_sim->model, mjMOUSE_ZOOM, 0, -0.05 * state->sy, &mj_sim->scene, &mj_sim->camera);
+#else
+    mjv_moveCamera(mj_sim->model, mjMOUSE_ZOOM, 0, -0.05 * state->sy, &mj_sim->camera);
+#endif
     return;
   }
 
@@ -284,8 +288,12 @@ void uiEvent(mjuiState * state)
       mjv_movePerturb(mj_sim->model, mj_sim->data, action, state->dx / r.height, -state->dy / r.height, &mj_sim->scene,
                       &mj_sim->pert);
     else
+#if mjVERSION_HEADER < 3011000
       mjv_moveCamera(mj_sim->model, action, state->dx / r.height, -state->dy / r.height, &mj_sim->scene,
                      &mj_sim->camera);
+#else
+      mjv_moveCamera(mj_sim->model, action, state->dx / r.height, -state->dy / r.height, &mj_sim->camera);
+#endif
     return;
   }
 }
