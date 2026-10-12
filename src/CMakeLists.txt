@@ -107,8 +107,9 @@ if(DEFINED MUJOCO_ROOT_INCLUDE_DIR)
 endif()
 target_include_directories(mc_mujoco_lib
                            PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/include")
+# BEFORE: MuJoCo >= 3.15 ships its own (newer) imgui.h in its include folder
 target_include_directories(
-  mc_mujoco_lib
+  mc_mujoco_lib BEFORE
   PRIVATE "${imgui_DIR}" "${implot_DIR}" "${mc_rtc-imgui_DIR}" "${assets_DIR}"
           "${ImGuizmo_DIR}" "${PROJECT_SOURCE_DIR}/ext/pugixml")
 target_link_libraries(
