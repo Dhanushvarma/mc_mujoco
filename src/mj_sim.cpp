@@ -1043,7 +1043,10 @@ void MjSimImpl::resetSimulation(const std::map<std::string, std::vector<double>>
   }
   mj_resetData(model, data);
   setSimulationInitialState();
-  makeDatastoreCalls();
+  if(controller)
+  {
+    makeDatastoreCalls();
+  }
   for(auto & marker : markers)
   {
     marker.marker.pose(getObjectPosW(marker.name));
