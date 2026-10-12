@@ -99,10 +99,13 @@ message(STATUS "MuJoCo lib found at: " ${LIB_MUJOCO})
 
 set(MC_MUJOCO_SHARE_DESTINATION "${CMAKE_INSTALL_PREFIX}/share/mc_mujoco")
 if(WIN32)
-  set(MC_MUJOCO_USER_DESTINATION "$ENV{APPDATA}/mc_rtc/mc_mujoco")
+  set(MC_MUJOCO_DEFAULT_USER_DESTINATION "$ENV{APPDATA}/mc_rtc/mc_mujoco")
 else()
-  set(MC_MUJOCO_USER_DESTINATION "$ENV{HOME}/.config/mc_rtc/mc_mujoco")
+  set(MC_MUJOCO_DEFAULT_USER_DESTINATION "$ENV{HOME}/.config/mc_rtc/mc_mujoco")
 endif()
+set(MC_MUJOCO_USER_DESTINATION
+    "${MC_MUJOCO_DEFAULT_USER_DESTINATION}"
+    CACHE PATH "Folder where mc_mujoco looks for the user configuration (mc_mujoco.yaml, robot files)")
 
 add_subdirectory(cmake)
 add_subdirectory(ext/pugixml)

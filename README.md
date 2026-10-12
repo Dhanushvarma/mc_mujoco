@@ -27,6 +27,8 @@ If mujoco is already installed, you can add the following   option to specify th
 $ cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo -DMUJOCO_ROOT_DIR=$HOME/.mujoco/mujoco-3.15.0
 ```
 
+mc_mujoco reads its user configuration (`mc_mujoco.yaml`, robot files) from `~/.config/mc_rtc/mc_mujoco` by default. Pass `-DMC_MUJOCO_USER_DESTINATION=<folder>` to use another folder.
+
 Add the following line to your `~/.bashrc`:
 
 ```
