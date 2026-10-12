@@ -315,7 +315,7 @@ public:
 
   void saveGUISettings();
 
-  void loadPlugins(const mc_rtc::Configuration & mc_mujoco_cfg) const;
+  void loadPlugins(const std::vector<std::string> & plugin_paths) const;
 
   inline mc_control::MCGlobalController * get_controller() noexcept
   {

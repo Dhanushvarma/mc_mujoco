@@ -140,7 +140,17 @@ MjSimImpl::MjSimImpl(const MjConfiguration & config)
     }
     return {};
   }();
+  // Objects and plugin paths can also come from the mc_rtc configuration, under MuJoCo
+  const auto mc_rtc_mujoco_cfg = controller->configuration().config.find("MuJoCo");
   auto config_objects = mc_mujoco_cfg("objects", std::map<std::string, mc_rtc::Configuration>{});
+  if(mc_rtc_mujoco_cfg)
+  {
+    for(const auto & [name, object_cfg] :
+        (*mc_rtc_mujoco_cfg)("objects", std::map<std::string, mc_rtc::Configuration>{}))
+    {
+      config_objects[name] = object_cfg;
+    }
+  }
   for(const auto & co : config_objects)
   {
     MjObject object;
@@ -250,7 +260,13 @@ MjSimImpl::MjSimImpl(const MjConfiguration & config)
   }
 
   // load MuJoCo plugins
-  loadPlugins(mc_mujoco_cfg);
+  auto plugin_paths = mc_mujoco_cfg("PluginPaths", std::vector<std::string>{});
+  if(mc_rtc_mujoco_cfg)
+  {
+    auto paths = (*mc_rtc_mujoco_cfg)("PluginPaths", std::vector<std::string>{});
+    plugin_paths.insert(plugin_paths.end(), paths.begin(), paths.end());
+  }
+  loadPlugins(plugin_paths);
 
   // initial mujoco here and load XML model
   bool initialized = mujoco_init(this, mjObjects, mcObjects);
@@ -1192,7 +1208,7 @@ void MjSimImpl::saveGUISettings()
   mc_rtc::log::success("[mc_mujoco] Configuration saved to {}", config_path);
 }
 
-void MjSimImpl::loadPlugins(const mc_rtc::Configuration & mc_mujoco_cfg) const
+void MjSimImpl::loadPlugins(const std::vector<std::string> & plugin_paths) const
 {
   // print built-in plugins
   int nplugin = mjp_pluginCount();
@@ -1205,24 +1221,42 @@ void MjSimImpl::loadPlugins(const mc_rtc::Configuration & mc_mujoco_cfg) const
     }
   }
 
-  // scan plugins from the user-specified paths
-  for(const auto & plugin_path : mc_mujoco_cfg("PluginPaths", std::vector<std::string>{}))
+  auto print_library = +[](const char * filename, int first, int count)
   {
-    mc_rtc::log::info("[mc_mujoco] Scan plugins in {}", plugin_path);
-    mj_loadAllPluginLibraries(
-        plugin_path.c_str(),
-        +[](const char * filename, int first, int count)
-        {
-          if(count == 0)
-          {
-            return;
-          }
-          mc_rtc::log::info("[mc_mujoco] Plugins registered by library {}", filename);
-          for(int i = first; i < first + count; ++i)
-          {
-            mc_rtc::log::info("  - {}", mjp_getPluginAtSlot(i)->name);
-          }
-        });
+    if(count == 0)
+    {
+      return;
+    }
+    mc_rtc::log::info("[mc_mujoco] Plugins registered by library {}", filename);
+    for(int i = first; i < first + count; ++i)
+    {
+      mc_rtc::log::info("  - {}", mjp_getPluginAtSlot(i)->name);
+    }
+  };
+
+  // load plugins from the user-specified paths: a folder of plugin libraries, or one library
+  for(const auto & plugin_path : plugin_paths)
+  {
+    if(fs::is_directory(plugin_path))
+    {
+      mc_rtc::log::info("[mc_mujoco] Scan plugins in {}", plugin_path);
+      mj_loadAllPluginLibraries(plugin_path.c_str(), print_library);
+    }
+    else if(fs::is_regular_file(plugin_path))
+    {
+      int first = mjp_pluginCount();
+      mj_loadPluginLibrary(plugin_path.c_str());
+      if(mjp_pluginCount() == first)
+      {
+        mc_rtc::log::warning("[mc_mujoco] {} registered no plugin: already loaded, or failed to load (check with ldd)",
+                             plugin_path);
+      }
+      print_library(plugin_path.c_str(), first, mjp_pluginCount() - first);
+    }
+    else
+    {
+      mc_rtc::log::error("[mc_mujoco] Plugin path {} does not exist", plugin_path);
+    }
   }
 }
 
