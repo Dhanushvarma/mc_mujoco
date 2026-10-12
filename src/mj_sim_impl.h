@@ -133,6 +133,21 @@ struct MjRobot
   /** Correspondance from mc-rtc body sensor's name to MuJoCo accelerometer sensor id, -1 if absent */
   std::unordered_map<std::string, int> mc_bs_to_mj_accelerometer_id;
 
+  /** A MuJoCo plugin sensor of this robot */
+  struct PluginSensor
+  {
+    /** Datastore key: <robot>::<sensor name without the robot prefix> */
+    std::string key;
+    /** Address in sensordata */
+    int adr;
+    /** Number of values in sensordata */
+    int dim;
+    /** Plugin instance of the sensor */
+    int instance;
+  };
+  /** Plugin sensors of this robot, published in the datastore */
+  std::vector<PluginSensor> plugin_sensors;
+
   /** Transform from index in mj_mot_names to index in mbc, -1 if not in mbc */
   std::vector<int> mj_to_mbc;
   /** Command send to mujoco */
@@ -152,6 +167,10 @@ struct MjRobot
 
   /** Initialize some data after the simulation has started */
   void initialize(mjModel * model, const mc_rbdyn::Robot & robot);
+
+  /** Find the plugin sensors of this robot: named with its prefix and attached to its bodies. Called by
+   * makeDatastoreCalls, at start and after a reset */
+  void initializePluginSensors(const mjModel * model);
 
   /** Reset the state based on the mc_rtc robot state */
   void reset(const mc_rbdyn::Robot & robot);

@@ -392,6 +392,64 @@ void MjRobot::initialize(mjModel * model, const mc_rbdyn::Robot & robot)
   reset(robot);
 }
 
+void MjRobot::initializePluginSensors(const mjModel * model)
+{
+  plugin_sensors.clear();
+  const std::string sensor_prefix = prefixed("");
+  // From the name, as this runs before initialize() sets root_body_id
+  const int root_id = root_body.empty() ? -1 : mj_name2id(model, mjOBJ_BODY, root_body.c_str());
+  const int root = root_id != -1 ? model->body_rootid[root_id] : -1;
+  for(int i = 0; i < model->nsensor; ++i)
+  {
+    if(model->sensor_type[i] != mjSENS_PLUGIN)
+    {
+      continue;
+    }
+    // The prefix of a robot can start another robot's name (jvrc1, jvrc1_2): check the body too
+    const int obj = model->sensor_objid[i];
+    int body = -1;
+    switch(model->sensor_objtype[i])
+    {
+      case mjOBJ_SITE:
+        body = model->site_bodyid[obj];
+        break;
+      case mjOBJ_BODY:
+      case mjOBJ_XBODY:
+        body = obj;
+        break;
+      case mjOBJ_GEOM:
+        body = model->geom_bodyid[obj];
+        break;
+      case mjOBJ_JOINT:
+        body = model->jnt_bodyid[obj];
+        break;
+      case mjOBJ_CAMERA:
+        body = model->cam_bodyid[obj];
+        break;
+      default:
+        break;
+    }
+    const bool other_robot = body != -1 && root != -1 && model->body_rootid[body] != root;
+    const char * mj_name = mj_id2name(model, mjOBJ_SENSOR, i);
+    if(!mj_name)
+    {
+      if(body != -1 && root != -1 && !other_robot)
+      {
+        mc_rtc::log::warning("[mc_mujoco] Plugin sensor {} of {} has no name, its data is not published", i, name);
+      }
+      continue;
+    }
+    const std::string sensor = mj_name;
+    if(other_robot || sensor.size() <= sensor_prefix.size()
+       || sensor.compare(0, sensor_prefix.size(), sensor_prefix) != 0)
+    {
+      continue;
+    }
+    plugin_sensors.push_back({fmt::format("{}::{}", name, sensor.substr(sensor_prefix.size())), model->sensor_adr[i],
+                              model->sensor_dim[i], model->sensor_plugin[i]});
+  }
+}
+
 void MjRobot::reset(const mc_rbdyn::Robot & robot)
 {
   const auto & mbc = robot.mbc();
@@ -611,6 +669,38 @@ void MjSimImpl::makeDatastoreCalls()
   for(auto & r : robots)
   {
     ds.make_call(r.name + "::SetPosW", [this, name = r.name](const sva::PTransformd & pt) { setRobotPosW(name, pt); });
+    // plugin state of the robot's plugin sensors, e.g. to send them commands
+    r.initializePluginSensors(model);
+    for(const auto & s : r.plugin_sensors)
+    {
+      const int adr = model->plugin_stateadr[s.instance];
+      const int num = model->plugin_statenum[s.instance];
+      mc_rtc::log::info("[mc_mujoco] Plugin sensor {}: {} values, plugin state of {} values", s.key, s.dim, num);
+      if(num == 0)
+      {
+        continue;
+      }
+      ds.make_call(s.key + "::SetPluginState",
+                   [this, adr, num, key = s.key](const std::vector<double> & state)
+                   {
+                     if(static_cast<int>(state.size()) != num)
+                     {
+                       mc_rtc::log::warning("[mc_mujoco] {}::SetPluginState: got {} values, the plugin state has {}",
+                                            key, state.size(), num);
+                       return false;
+                     }
+                     std::lock_guard<std::mutex> lock(rendering_mutex_);
+                     std::copy(state.begin(), state.end(), data->plugin_state + adr);
+                     return true;
+                   });
+      ds.make_call(s.key + "::GetPluginState",
+                   [this, adr, num](std::vector<double> & state)
+                   {
+                     std::lock_guard<std::mutex> lock(rendering_mutex_);
+                     state.assign(data->plugin_state + adr, data->plugin_state + adr + num);
+                     return true;
+                   });
+    }
     // make_call for setting pd gains (for all joints)
     ds.make_call(r.name + "::SetPDGains",
                  [this, &r](const std::vector<double> & p_vec, const std::vector<double> & d_vec)
@@ -805,6 +895,21 @@ void MjRobot::updateSensors(mc_control::MCGlobalController * gc, mjModel * model
   gc->setEncoderValues(name, encoders);
   gc->setEncoderVelocities(name, alphas);
   gc->setJointTorques(name, torques);
+
+  // Plugin sensors: their raw sensordata, for the controller and its plugins to decode
+  auto & ds = gc->controller().datastore();
+  for(const auto & s : plugin_sensors)
+  {
+    const mjtNum * src = data->sensordata + s.adr;
+    if(ds.has(s.key))
+    {
+      ds.get<std::vector<double>>(s.key).assign(src, src + s.dim);
+    }
+    else
+    {
+      ds.make<std::vector<double>>(s.key, src, src + s.dim);
+    }
+  }
 }
 
 void MjSimImpl::updateData()
